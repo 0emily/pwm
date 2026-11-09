@@ -43,10 +43,10 @@ end PWMSystem;
 
 architecture PWMSystemArchitecture of PWMSystem is
     -- constants
-    constant startAddrSW1   : std_logic_vector(18 downto 0) := 16#40000#;
-    constant startAddrSW2   : std_logic_vector(18 downto 0) := 16#48000#;
-    constant startAddrSW3   : std_logic_vector(18 downto 0) := 16#58000#;
-    constant startAddrSW4   : std_logic_vector(18 downto 0) := 16#7C000#;
+    constant startAddrSW1   : unsigned(18 downto 0) := to_unsigned(x"40000", 19);
+    constant startAddrSW2   : unsigned(18 downto 0) := to_unsigned(x"48000", 19);
+    constant startAddrSW3   : unsigned(18 downto 0) := to_unsigned(x"58000", 19);
+    constant startAddrSW4   : unsigned(18 downto 0) := to_unsigned(x"7C000", 19);
     constant sampleMax: unsigned(11 downto 0) := to_unsigned(4095, 12);
     -- signals
     signal currAddr     : std_logic_vector(18 downto 0) := (others => '0');
@@ -109,10 +109,10 @@ begin
     messageEnd: process(clk)
     begin
         if rising_edge(clk) then
-            if (currAddr = 16#48000#) or 
-                (currAddr = 16#58000#)  or 
-                (currAddr = 16#7C000#) or 
-                (currAddr = 16#80000#) then
+            if (currAddr = to_unsigned(x"48000", 19)) or 
+                (currAddr = to_unsigned(x"58000", 19))  or 
+                (currAddr = to_unsigned(x"7C000", 19)) or 
+                (currAddr = to_unsigned(x"80000", 19)) then
                     messageEnded <= '1';
             else messageEnded <= '0';
             end if;
