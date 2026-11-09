@@ -43,15 +43,15 @@ end PWMSystem;
 
 architecture PWMSystemArchitecture of PWMSystem is
     -- constants
-    constant startAddrSW1   : std_logic_vector(18 downto 0) := x"40000";
-    constant startAddrSW2   : std_logic_vector(18 downto 0) := x"48000";
-    constant startAddrSW3   : std_logic_vector(18 downto 0) := x"58000";
-    constant startAddrSW4   : std_logic_vector(18 downto 0) := x"7C000";
-    constant sampleMax: std_logic_vector(11 downto 0) := b"1111_1111_1111"; -- 4095
+    constant startAddrSW1   : std_logic_vector(18 downto 0) := 16#40000#;
+    constant startAddrSW2   : std_logic_vector(18 downto 0) := 16#48000#;
+    constant startAddrSW3   : std_logic_vector(18 downto 0) := 16#58000#;
+    constant startAddrSW4   : std_logic_vector(18 downto 0) := 16#7C000#;
+    constant sampleMax: unsigned(11 downto 0) := to_unsigned(4095, 12);
     -- signals
     signal currAddr     : std_logic_vector(18 downto 0) := (others => '0');
     signal playing      : std_logic := '0';
-    signal sample      :   in  unsigned(7 downto 0);
+    signal sample      :  unsigned(7 downto 0);
     signal activeSwitch : integer range 1 to 4 := 4;
 
     -- AddressCalc
@@ -92,24 +92,27 @@ begin
     end process getSwitchStates;
 
     -- set the starting address for this switch
-    if switchStates(4) = '1' then
-        startAddr <= startAddrSW4;
-    elsif switchStates(3) = '1' then
-        startAddr <= startAddrSW3;
-    elsif switchStates(2) = '1' then
-        startAddr <= startAddrSW2;
-    elif switchStates(1) = '1' then
-        startAddr <= startAddrSW1;
-
+    process(switchStates)
+    begin
+        if switchStates(4) = '1' then
+            startAddr <= startAddrSW4;
+        elsif switchStates(3) = '1' then
+            startAddr <= startAddrSW3;
+        elsif switchStates(2) = '1' then
+            startAddr <= startAddrSW2;
+        elsif switchStates(1) = '1' then
+            startAddr <= startAddrSW1;
+        end if;
+    end process;
 
     -- check if the currently playing message has ended
     messageEnd: process(clk)
     begin
         if rising_edge(clk) then
-            if (currAddr = x"48000") or 
-                (currAddr = x"58000")  or 
-                (currAddr = x"7C000") or 
-                (currAddr = x"80000" ) then
+            if (currAddr = 16#48000#) or 
+                (currAddr = 16#58000#)  or 
+                (currAddr = 16#7C000#) or 
+                (currAddr = 16#80000#) then
                     messageEnded <= '1';
             else messageEnded <= '0';
             end if;
@@ -125,19 +128,18 @@ begin
                     if switchStates /= "0000" then
                         currAddr <= startAddr;
 
-                    if switchStates(4) = '1' then
-                            activeSwitch <= 4;
-                        elsif switchStates(3) = '1' then
-                            activeSwitch <= 3;
-                        elsif switchStates(2) = '1' then
-                            activeSwitch <= 2;
-                        else
-                            activeSwitch <= 1;
-                        end if;
+                        if switchStates(4) = '1' then
+                                activeSwitch <= 4;
+                            elsif switchStates(3) = '1' then
+                                activeSwitch <= 3;
+                            elsif switchStates(2) = '1' then
+                                activeSwitch <= 2;
+                            else
+                                activeSwitch <= 1;
+                            end if;
 
                         playing <= '1';
                     end if;
-                end if;
 
                 elsif messageEnded = '1' then
                     if switchStates(activeSwitch) = '1' then
@@ -162,15 +164,16 @@ begin
     Comparator: process(clk)
     begin
         if rising_edge(clk) then
-        if playing = '0' then
-            AudioPWMOut <= '0';
-        elsif count12bit(7 downto 0) > unsigned(AudioData) then
-            AudioPWMOut <= '0';
-        elsif (count12bit(7 downto 0) < unsigned(AudioData)) or 
-              (count12bit(7 downto 0) = unsigned(AudioData)) then
-            AudioPWMOut <= '1';
-        else
-            null;
+            if playing = '0' then
+                AudioPWMOut <= '0';
+            elsif count12bit(7 downto 0) > sample then
+                AudioPWMOut <= '0';
+            elsif (count12bit(7 downto 0) < sample) or 
+                  (count12bit(7 downto 0) = sample) then
+                AudioPWMOut <= '1';
+            else
+                null;
+            end if;
         end if;
     end process Comparator;
 
