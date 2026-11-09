@@ -177,7 +177,7 @@ begin
         end if;
     end process Comparator;
 
-    AudioAddr  <= currAddr;
+    AudioAddr  <= std_logic_vector(currAddr);
 
 
 end PWMSystemArchitecture; 
