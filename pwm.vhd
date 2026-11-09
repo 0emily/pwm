@@ -49,7 +49,7 @@ architecture PWMSystemArchitecture of PWMSystem is
     constant startAddrSW4   : unsigned(18 downto 0) := to_unsigned(16#7C000#, 19);
     constant sampleMax: unsigned(11 downto 0) := to_unsigned(4095, 12);
     -- signals
-    signal currAddr     : std_logic_vector(18 downto 0) := (others => '0');
+    signal currAddr     : unsigned(18 downto 0) := (others => '0');
     signal playing      : std_logic := '0';
     signal sample      :  unsigned(7 downto 0);
     signal activeSwitch : integer range 1 to 4 := 4;
