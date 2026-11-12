@@ -1,21 +1,34 @@
 --------------------------------------------------------------------------------
 --
---  PWM Sound in VHDL
+--  Switch-activated PWM Sound in VHDL
 --
---  This is an implementation of a ___ in VHDL
---  It uses a ___ type architecture. 
+--  This is an implementation of the EE119a PWM board functionality in VHDL.
+--  There are four switches on the board, each of which triggers a distinct 
+--  message ranging in length from 2 seconds to 18 seconds, sampled at 8 KHz.
+--  The messages are stored on a 512Kx8 EPROM. 
+--  If a switch is still pressed when the message completes, then the system 
+--  plays the message again. Switches are prioritized in descending order when 
+--  two are pressed at the same time. Pressing a switch when a message is
+--  already playing will not trigger the new sound to play. 
+--  This code fits onto the Xilinx version.
+--  It uses a behavioral type architecture. 
 --
 --  Entities included are:
---     comparator      - compares current counter8bit value with EPROM sample
---     counter8bit     - 8 bit counter [0 to 255] - within each pwm pulse
---     counter4bit     - 4 bit counter [0 to 15] - num pwm pulses in 1 sample
---     counter20bit    - 20 bit counter [0 to 1,048,575] - num samples/addresses
---     readEPROM       - reads data fom EPROM; pipelined structure
+--     PWMSystem      - plays PWM sound when a switch on the board is activated
+--
+--  Input:             CLK          system clock
+--                     SW1 to SW4   switch inputs
+--                     AudioData    8 bit input audio sample data     
+--  Output:            AudioAddr    12 bit output EPROM address 
+--                     AudioPWMOut  1 bit output to PWM speaker
+--
 --  Revision History:
 --     06 Nov 26  Emily Wu          Initial Revision
 --     07 Nov 26  Emily Wu          Merged into 1 entity; changed inputs/outputs
---     09 Nov 26  Emily Wu
---
+--     09 Nov 26  Emily Wu          - Added cases for repeating the same message
+--                                  - Switched from 8, 4, & 20 bit ctrs to one
+--                                      12 bit counter
+--     11 Nov 26  Emily Wu          Added comments
 --------------------------------------------------------------------------------
 
 library ieee;
@@ -42,44 +55,39 @@ end PWMSystem;
 --
 
 architecture PWMSystemArchitecture of PWMSystem is
-    -- constants
-    constant startAddrSW1   : unsigned(18 downto 0) := to_unsigned(16#40000#, 19);
-    constant startAddrSW2   : unsigned(18 downto 0) := to_unsigned(16#48000#, 19);
-    constant startAddrSW3   : unsigned(18 downto 0) := to_unsigned(16#58000#, 19);
-    constant startAddrSW4   : unsigned(18 downto 0) := to_unsigned(16#7C000#, 19);
-    constant sampleMax: unsigned(11 downto 0) := to_unsigned(4095, 12);
-    -- signals
-    signal currAddr     : unsigned(18 downto 0) := (others => '0');
-    signal playing      : std_logic := '0';
-    signal sample      :  unsigned(7 downto 0);
-    signal activeSwitch : integer range 1 to 4 := 4;
+    -- CONSTANTS -- 
+    -- EPROM starting addresses
+    constant startAddrSW1 : unsigned(18 downto 0) := to_unsigned(16#40000#, 19);
+    constant startAddrSW2 : unsigned(18 downto 0) := to_unsigned(16#48000#, 19);
+    constant startAddrSW3 : unsigned(18 downto 0) := to_unsigned(16#58000#, 19);
+    constant startAddrSW4 : unsigned(18 downto 0) := to_unsigned(16#7C000#, 19);
+    -- EPROM ending addresses
+    constant endAddrSW1   : unsigned(18 downto 0) := to_unsigned(16#47FFF#, 19);
+    constant endAddrSW2   : unsigned(18 downto 0) := to_unsigned(16#57FFF#, 19);
+    constant endAddrSW3   : unsigned(18 downto 0) := to_unsigned(16#7BFFF#, 19);
+    constant endAddrSW4   : unsigned(18 downto 0) := to_unsigned(16#7FFFF#, 19);
+    -- each sample cycles from 0 to 4095 (4096 CPLD clocks)
+    constant sampleMax    : unsigned(11 downto 0) := to_unsigned(4095, 12);
+    
+    -- SIGNALS -- 
+    signal currAddr       : unsigned(18 downto 0) := (others => '0');
+    signal playing        : std_logic := '0';
+    signal sample         :  unsigned(7 downto 0);
 
-    -- AddressCalc
-    signal switchStates : std_logic_vector(4 downto 1) := (others => '0');
-    signal messageEnded : std_logic;
-    signal startAddr    : unsigned(18 downto 0);
+    signal activeSwitch   : integer range 1 to 4 := 4;
+    signal switchStates   : std_logic_vector(4 downto 1) := (others => '0');
+    signal messageEnded   : std_logic;
+    signal startAddr      : unsigned(18 downto 0);
 
-    -- counters
-    signal enSwitchCheck : std_logic := '0'; -- enable checking of switch inputs
-    signal count12bit   : unsigned(11 downto 0);
+    signal enSwitchCheck  : std_logic := '0';
+    signal count12bit     : unsigned(11 downto 0);
 
 begin
-    countSample: process(clk)
-    begin
-        if rising_edge(clk) then
-            count12bit <= count12bit + 1;
-            if count12bit = sampleMax - 1 then
-                enSwitchCheck <= '1';
-            else enSwitchCheck <= '0';
-            end if;
-        end if;
-    end process countSample;
 
 -- ####################### Switches ############################################
--- Switch state related behavior
+-- Switch-state related processes
 -- Special Behavior: when two switches are pressed simultaneously, the following
 --      priority list is followed: SW4 > SW3 > SW2 > SW1
--- messageEnd indicates that the message just ended, stopping playing
 
     getSwitchStates: process(clk)
     begin
@@ -92,7 +100,7 @@ begin
     end process getSwitchStates;
 
     -- set the starting address for this switch
-    process(switchStates)
+    getStartAddr: process(switchStates)
     begin
         if switchStates(4) = '1' then
             startAddr <= startAddrSW4;
@@ -103,31 +111,56 @@ begin
         elsif switchStates(1) = '1' then
             startAddr <= startAddrSW1;
         end if;
-    end process;
+    end process getStartAddr;
 
     -- check if the currently playing message has ended
+    -- this is true if any of the ending address has been reached. 
     messageEnd: process(clk)
     begin
         if rising_edge(clk) then
-            if (currAddr = to_unsigned(16#48000#, 19)) or 
-                (currAddr = to_unsigned(16#58000#, 19))  or 
-                (currAddr = to_unsigned(16#7C000#, 19)) or 
-                (currAddr = to_unsigned(16#80000#, 19)) then
+            if (currAddr = endAddrSW1) or 
+                (currAddr = endAddrSW2)  or 
+                (currAddr = endAddrSW3) or 
+                (currAddr = endAddrSW4) then
                     messageEnded <= '1';
             else messageEnded <= '0';
             end if;
         end if;
     end process messageEnd;
 
-    -- switch activations; repeats; pipelining
-    process(clk)
+-- ###################### Counter ##############################################
+-- 12 bit synchronous counter
+-- Increments on every rising clock edge, except when a cycle sample has ended,
+--      in which case we should set EnSwitchCheck high (check if any switch has  
+--      been pressed)
+ countSample: process(clk)
+    begin
+        if rising_edge(clk) then
+            count12bit <= count12bit + 1;
+            if count12bit = sampleMax - 1 then
+                enSwitchCheck <= '1';
+            else enSwitchCheck <= '0';
+            end if;
+        end if;
+    end process countSample;
+
+-- ###################### Main Behavior ########################################
+-- 1. Appropriately sets the current address when a switch is pressed
+-- 2. Sets the active switch indicator signal (holds which switch was pressed)
+-- 3. At the end of a message, if the same switch is still pressed, then reset
+--      the current address to the same original start address (otherwise stop 
+--      playing)
+-- 4. OTHERWISE, the only option left is that a message is currently playing
+--      so we store the retrieved AudioData sample and implement pipelining by 
+--      incrementing to the next EPROM address ahead of time. 
+
+    main: process(clk)
     begin
         if rising_edge(clk) then
             if enSwitchCheck = '1' then
                 if playing = '0' then
                     if switchStates /= "0000" then
                         currAddr <= startAddr;
-
                         if switchStates(4) = '1' then
                                 activeSwitch <= 4;
                             elsif switchStates(3) = '1' then
@@ -137,7 +170,6 @@ begin
                             else
                                 activeSwitch <= 1;
                             end if;
-
                         playing <= '1';
                     end if;
 
@@ -147,20 +179,21 @@ begin
                     else playing <= '0';
                     end if;
 
-                else --pipelining
+                else 
                     sample <= unsigned(AudioData);
                     currAddr <= currAddr + 1;
                 end if;
             end if;
         end if;
-    end process; 
-
+    end process main; 
 
 -- ###################### Comparator ###########################################
--- compares the 8 bit counter value to the data read from the EPROM
+-- Compares the 12 bit counter value (bottom 8 bits only) to the data read from  
+-- the EPROM
 -- Special Behavior: Since the assignment did not specify what would happen when
 -- the sample is equal to the counter, we have selected to set counter = 1 when
 -- they are equal. 
+-- The comparator additionally sets the output to 0 when nothing is playing. 
     Comparator: process(clk)
     begin
         if rising_edge(clk) then
