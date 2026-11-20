@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------------
 --
---  16-bit Adder/Subtracter for EE 119 Serial Divider Board
+--  16-bit Serial Divider for EE 119 Serial Divider Board
 --
 --  This file contains a design for taking input from the keypad and
 --  displaying it on the 7-segment LEDs.  When the calculate button is
@@ -18,6 +18,8 @@
 --                                     syntax.
 --     25 Nov 20  Glen George       Changed DecoderBit to DecoderBits.
 --     25 Nov 20  Glen George       Updated comments.
+--     18 Nov 26  Emily Wu          Added states for divider FSM
+--     20 Nov 26  Emily Wu
 --
 ----------------------------------------------------------------------------
 
@@ -31,7 +33,7 @@ use  ieee.numeric_std.all;
 
 
 --
---  AddSub16 entity declaration
+--  Div16 entity declaration
 --
 --  The entity takes input from the keypad and displays it on the 7-segment
 --  LEDs.  When the calculate button is pressed, either the sum or difference
@@ -55,28 +57,38 @@ use  ieee.numeric_std.all;
 --     DecoderBits(3 downto 0) - digit to display (to 4:12 decoder)
 
 
-entity  AddSub16  is
+entity  Div16  is
 
     port (
+        CLK          :  in   std_logic;
         nReset       :  in   std_logic;
-        nCalculate   :  in   std_logic;
-        Divisor      :  in   std_logic;
-        KeypadRdy    :  in   std_logic;
         Keypad       :  in   std_logic_vector(3 downto 0);
+        KeypadRdy    :  in   std_logic;
+        KeypadRow    :  in   std_logic_vector(3 downto 0);
+        KeypadCol    :  in   std_logic_vector(3 downto 0);
+        Divisor      :  in   std_logic;
+        nCalculate   :  in   std_logic;        
         HexDigit     :  out  std_logic_vector(3 downto 0);
         DecoderEn    :  out  std_logic;
         DecoderBits  :  out  std_logic_vector(3 downto 0);
-        CLK          :  in   std_logic
+        Digit        :  out  std_logic_vector(11 downto 0);
+        segmenta     :  out  std_logic;
+        segmentb     :  out  std_logic;
+        segmentc     :  out  std_logic;
+        segmentd     :  out  std_logic;
+        segmente     :  out  std_logic;
+        segmentf     :  out  std_logic;
+        segmentg     :  out  std_logic
     );
 
-end  AddSub16;
+end  Div16;
 
 
 --
---  AddSub16 architecture
+--  Div16 architecture
 --
 
-architecture  demo  of  AddSub16  is
+architecture  demo  of  Div16  is
     type states is (        --states the FSM can be in:
         idle,
         init,       -- clear remainder, set carry, op <= (-)
@@ -86,6 +98,10 @@ architecture  demo  of  AddSub16  is
         fixrem,     -- remainder <= remainder + divisor
         done        -- done active
         );
+    -- division signals
+    signal carry        : std_logic;
+
+
     -- keypad signals
     signal  HaveKey     :  std_logic;           -- have a key from the keypad
     signal  KeypadRdyS  :  std_logic_vector(2 downto 0); -- keypad ready synchronization
